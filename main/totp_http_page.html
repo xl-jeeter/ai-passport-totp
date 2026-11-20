@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>暮光令牌 · 局域网后台</title>
+<style>
+  :root {
+    --bg: #0E1116; --panel: #151B23; --line: #222D3A;
+    --text: #E8F4FF; --dim: #8FA6C0; --faint: #5A6B80;
+    --accent: #3BA7FF; --danger: #FF6B6B; --ok: #4CD97B;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 20px 14px 40px;
+    background: var(--bg); color: var(--text);
+    font: 15px/1.6 -apple-system, "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+    max-width: 760px; margin-inline: auto;
+  }
+  h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: 1px; }
+  h2 { font-size: 16px; margin: 28px 0 10px; color: var(--dim); font-weight: 600; }
+  .sub { color: var(--faint); font-size: 13px; margin-bottom: 14px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; padding: 14px 16px;
+  }
+  #status { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 14px; color: var(--dim); }
+  #status b { color: var(--text); font-weight: 600; }
+  .row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 0; border-bottom: 1px solid var(--line);
+  }
+  .row:last-child { border-bottom: 0; }
+  .row .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .name .meta { display: block; color: var(--faint); font-size: 12px; }
+  .code {
+    font: 600 20px/1.2 ui-monospace, "SF Mono", Consolas, monospace;
+    letter-spacing: 2px; color: var(--accent); min-width: 92px; text-align: right;
+  }
+  .badge {
+    font-size: 12px; color: var(--faint); border: 1px solid var(--line);
+    border-radius: 999px; padding: 1px 9px; white-space: nowrap;
+  }
+  button {
+    background: transparent; color: var(--dim); border: 1px solid var(--line);
+    border-radius: 8px; padding: 6px 14px; font-size: 14px; cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); color: var(--text); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #06121F; font-weight: 600; }
+  button.danger:hover { border-color: var(--danger); color: var(--danger); }
+  form .grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px; margin-bottom: 12px;
+  }
+  label { display: block; color: var(--faint); font-size: 12px; margin-bottom: 4px; }
+  input, select {
+    width: 100%; padding: 8px 10px; border-radius: 8px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--text); font-size: 14px;
+  }
+  input[type=file] { padding: 6px; }
+  .hint { color: var(--faint); font-size: 12px; margin: 6px 0 0; }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  #preview {
+    width: 32px; height: 32px; border-radius: 6px; border: 1px solid var(--line);
+    image-rendering: pixelated; display: none;
+  }
+  #toast {
+    position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+    background: var(--panel); border: 1px solid var(--line); color: var(--text);
+    padding: 10px 18px; border-radius: 10px; font-size: 14px;
+    opacity: 0; pointer-events: none; transition: opacity .25s; max-width: 90vw;
+  }
+  #toast.show { opacity: 1; }
+  #toast.err { border-color: var(--danger); color: var(--danger); }
+  .empty { color: var(--faint); padding: 18px 0; text-align: center; }
+</style>
+</head>
+<body>
+  <h1>暮光令牌</h1>
+  <div class="sub">局域网后台 · 数据只保存在设备本机，密钥不会上传到任何服务器</div>
+
+  <div class="card" id="ap-banner" style="display:none">
+    <b style="color:var(--accent)">配网模式</b>
+    <span class="hint" id="ap-banner-text"></span>
+  </div>
+
+  <div class="card">
+    <div id="status">
+      <span>IP <b id="st-ip">-</b></span>
+      <span>账号 <b id="st-count">-</b></span>
+      <span>时间 <b id="st-time">-</b></span>
+      <span>运行 <b id="st-up">-</b></span>
+    </div>
+  </div>
+
+  <h2>账号列表 <button id="btn-refresh" style="float:right">刷新</button></h2>
+  <div class="card" id="list"><div class="empty">加载中…</div></div>
+
+  <h2>添加账号</h2>
+  <div class="card">
+    <form id="add-form">
+      <div class="grid">
+        <div>
+          <label>名字</label>
+          <input name="name" maxlength="31" required placeholder="例如 GitHub">
+        </div>
+        <div>
+          <label>Base32 密钥</label>
+          <input name="secret" maxlength="127" required placeholder="JBSWY3DPEHPK3PXP">
+        </div>
+        <div>
+          <label>位数</label>
+          <select name="digits"><option value="6" selected>6</option><option value="8">8</option></select>
+        </div>
+        <div>
+          <label>周期（秒）</label>
+          <select name="period"><option value="30" selected>30</option><option value="60">60</option></select>
+        </div>
+        <div>
+          <label>算法</label>
+          <select name="algo">
+            <option value="SHA1" selected>SHA1</option>
+            <option value="SHA256">SHA256</option>
+            <option value="SHA512">SHA512</option>
+          </select>
+        </div>
+        <div>
+          <label>图标（可选，自动缩到 32×32）</label>
+          <input type="file" accept="image/*" id="icon-input">
+        </div>
+      </div>
+      <div class="actions">
+        <button type="submit" class="primary">添加</button>
+        <img id="preview" alt="">
+        <span class="hint">图片在浏览器里缩放并转成 RGB565 后上传，设备不做图片解码。</span>
+      </div>
+    </form>
+  </div>
+
+  <h2>网络 <button id="btn-scan" style="float:right">扫描附近 Wi-Fi</button></h2>
+  <div class="card">
+    <div id="scan-list"><div class="empty">点右上角扫描，选中后自动填入下面的 Wi-Fi 名字</div></div>
+    <form id="wifi-form">
+      <div class="grid">
+        <div>
+          <label>Wi-Fi 名字（SSID）</label>
+          <input name="ssid" maxlength="32" placeholder="从上方列表选择或手动输入">
+        </div>
+        <div>
+          <label>Wi-Fi 密码</label>
+          <input name="password" maxlength="64" type="password">
+        </div>
+      </div>
+      <div class="actions">
+        <button type="submit" class="primary" id="wifi-submit">连接 Wi-Fi</button>
+        <span class="hint" id="wifi-hint"></span>
+      </div>
+    </form>
+  </div>
+
+  <h2>系统</h2>
+  <div class="card">
+    <div class="actions">
+      <button id="btn-time">用浏览器时间授时</button>
+      <span class="hint" id="time-hint"></span>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+
+function toast(msg, isErr) {
+  const el = $('toast');
+  el.textContent = msg;
+  el.className = 'show' + (isErr ? ' err' : '');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => { el.className = ''; }, 3200);
+}
+
+async function api(path, method, payload) {
+  const opt = { method: method || 'GET', headers: {} };
+  if (payload !== undefined) {
+    opt.headers['Content-Type'] = 'application/json';
+    opt.body = JSON.stringify(payload);
+  }
+  const res = await fetch(path, opt);
+  let data = {};
+  try { data = await res.json(); } catch (e) { /* 非 JSON 忽略 */ }
+  if (!res.ok || data.ok === false) {
+    throw new Error(data.error || ('HTTP ' + res.status));
+  }
+  return data;
+}
+
+/* 图片 → 32×32 canvas（居中裁剪铺满）→ RGB565（小端）原始字节 → base64。
+ * 返回 {b64, preview}，preview 用于本地显示，不上传。 */
+function fileToIconB64(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      try {
+        const cv = document.createElement('canvas');
+        cv.width = 32; cv.height = 32;
+        const ctx = cv.getContext('2d');
+        ctx.fillStyle = '#0E1116';
+        ctx.fillRect(0, 0, 32, 32);
+        const s = Math.max(32 / img.width, 32 / img.height);
+        const w = img.width * s, h = img.height * s;
+        ctx.drawImage(img, (32 - w) / 2, (32 - h) / 2, w, h);
+        const d = ctx.getImageData(0, 0, 32, 32).data;
+        const bytes = new Uint8Array(2048);
+        for (let i = 0; i < 1024; i++) {
+          const v = ((d[i * 4] & 0xF8) << 8) | ((d[i * 4 + 1] & 0xFC) << 3) | (d[i * 4 + 2] >> 3);
+          bytes[i * 2] = v & 0xFF;
+          bytes[i * 2 + 1] = v >> 8;
+        }
+        let bin = '';
+        for (let i = 0; i < bytes.length; i += 1024) {
+          bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 1024));
+        }
+        resolve({ b64: btoa(bin), preview: cv.toDataURL() });
+      } catch (err) {
+        reject(err);
+      }
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('图片读取失败')); };
+    img.src = url;
+  });
+}
+
+function fmtUptime(sec) {
+  if (sec < 60) return sec + ' 秒';
+  if (sec < 3600) return Math.floor(sec / 60) + ' 分 ' + (sec % 60) + ' 秒';
+  return Math.floor(sec / 3600) + ' 时 ' + Math.floor((sec % 3600) / 60) + ' 分';
+}
+
+let apMode = false;
+
+async function loadStatus() {
+  const s = await api('/api/status');
+  apMode = !!s.ap;
+  $('ap-banner').style.display = apMode ? 'block' : 'none';
+  if (apMode) {
+    $('ap-banner-text').textContent =
+      '设备热点 ' + (s.ap_ssid || '-') + '，网址 ' + (s.ap_ip || '192.168.4.1') +
+      '。在下方填好家里 Wi-Fi 并连接，账号管理不受影响。';
+  }
+  $('st-ip').textContent = apMode ? (s.ap_ip || '192.168.4.1') : (s.ip || '未联网');
+  $('st-count').textContent = s.accounts + ' / 16';
+  $('st-time').textContent = s.time_ok ? '已授时' : '未授时';
+  $('st-up').textContent = fmtUptime(s.uptime | 0);
+  $('wifi-submit').textContent = apMode ? '连接 Wi-Fi' : '保存 Wi-Fi 并重启';
+  $('wifi-hint').textContent = apMode
+    ? '连接成功后热点会关闭，请让手机连回家里 Wi-Fi，再用新地址访问。'
+    : '保存后设备重启并自动连接。';
+}
+
+async function loadList() {
+  const list = await api('/api/accounts');
+  const box = $('list');
+  box.textContent = '';
+  if (!list.length) {
+    const div = document.createElement('div');
+    div.className = 'empty';
+    div.textContent = '还没有账号，在下方添加';
+    box.appendChild(div);
+    return;
+  }
+  for (const acc of list) {
+    const row = document.createElement('div');
+    row.className = 'row';
+
+    const name = document.createElement('div');
+    name.className = 'name';
+    name.appendChild(document.createTextNode(acc.name));
+    const meta = document.createElement('span');
+    meta.className = 'meta';
+    meta.textContent = acc.digits + ' 位 · ' + acc.period + ' 秒 · ' + acc.algo +
+                      ' · ' + (acc.has_icon ? '有图标' : '无图标');
+    name.appendChild(meta);
+
+    const code = document.createElement('div');
+    code.className = 'code';
+    if (!acc.code) {
+      code.textContent = '----';
+    } else if (acc.code.length === 8) {
+      code.textContent = acc.code.slice(0, 4) + ' ' + acc.code.slice(4);
+    } else {
+      code.textContent = acc.code.slice(0, 3) + ' ' + acc.code.slice(3);
+    }
+
+    const badge = document.createElement('span');
+    badge.className = 'badge';
+    badge.textContent = '#' + acc.index;
+
+    const del = document.createElement('button');
+    del.className = 'danger';
+    del.textContent = '删除';
+    del.addEventListener('click', async () => {
+      if (!confirm('删除账号「' + acc.name + '」？')) return;
+      try {
+        await api('/api/accounts/' + acc.index, 'DELETE');
+        toast('已删除 ' + acc.name);
+        await loadAll();
+      } catch (err) {
+        toast('删除失败：' + err.message, true);
+      }
+    });
+
+    row.appendChild(name);
+    row.appendChild(code);
+    row.appendChild(badge);
+    row.appendChild(del);
+    box.appendChild(row);
+  }
+}
+
+async function loadAll() {
+  try {
+    await Promise.all([loadStatus(), loadList()]);
+  } catch (err) {
+    toast('加载失败：' + err.message, true);
+  }
+}
+
+$('btn-refresh').addEventListener('click', loadAll);
+
+let iconB64 = null;
+
+$('icon-input').addEventListener('change', async () => {
+  const file = $('icon-input').files[0];
+  const img = $('preview');
+  iconB64 = null;
+  if (!file) { img.style.display = 'none'; return; }
+  try {
+    const result = await fileToIconB64(file);
+    iconB64 = result.b64;
+    img.src = result.preview;
+    img.style.display = 'inline-block';
+  } catch (err) {
+    toast('图标处理失败：' + err.message, true);
+    img.style.display = 'none';
+  }
+});
+
+$('add-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target.elements;
+  try {
+    const payload = {
+      name: f.name.value.trim(),
+      secret: f.secret.value.trim().replace(/\s+/g, ''),
+      digits: parseInt(f.digits.value, 10),
+      period: parseInt(f.period.value, 10),
+      algo: f.algo.value
+    };
+    if (iconB64) payload.icon_b64 = iconB64;
+    await api('/api/accounts', 'POST', payload);
+    toast('已添加 ' + payload.name);
+    e.target.reset();
+    iconB64 = null;
+    $('preview').style.display = 'none';
+    await loadAll();
+  } catch (err) {
+    toast('添加失败：' + err.message, true);
+  }
+});
+
+$('btn-time').addEventListener('click', async () => {
+  try {
+    await api('/api/time', 'POST', { epoch: Math.floor(Date.now() / 1000) });
+    toast('已用浏览器时间授时');
+    await loadStatus();
+  } catch (err) {
+    toast('授时失败：' + err.message, true);
+  }
+});
+
+$('btn-scan').addEventListener('click', async () => {
+  const btn = $('btn-scan');
+  const old = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '扫描中…';
+  try {
+    renderScan(await api('/api/wifi/scan'));
+  } catch (err) {
+    toast('扫描失败：' + err.message, true);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = old;
+  }
+});
+
+function renderScan(list) {
+  const box = $('scan-list');
+  box.textContent = '';
+  if (!list.length) {
+    const div = document.createElement('div');
+    div.className = 'empty';
+    div.textContent = '没有扫到 Wi-Fi，可以手动输入';
+    box.appendChild(div);
+    return;
+  }
+  for (const ap of list) {
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.style.cursor = 'pointer';
+
+    const name = document.createElement('div');
+    name.className = 'name';
+    name.appendChild(document.createTextNode(ap.ssid));
+    const meta = document.createElement('span');
+    meta.className = 'meta';
+    meta.textContent = ap.auth + ' · ' + ap.rssi + ' dBm';
+    name.appendChild(meta);
+
+    const pick = document.createElement('span');
+    pick.className = 'badge';
+    pick.textContent = '点选';
+
+    row.appendChild(name);
+    row.appendChild(pick);
+    row.addEventListener('click', () => {
+      $('wifi-form').elements.ssid.value = ap.ssid;
+      $('wifi-form').elements.password.focus();
+    });
+    box.appendChild(row);
+  }
+}
+
+$('wifi-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target.elements;
+  const ssid = f.ssid.value.trim();
+  if (!ssid) { toast('请填写 Wi-Fi 名字', true); return; }
+  if (!apMode && !confirm('保存 Wi-Fi 后设备会重启并尝试连接，确定？')) return;
+  const btn = $('wifi-submit');
+  btn.disabled = true;
+  try {
+    const data = await api('/api/wifi', 'POST', { ssid: ssid, password: f.password.value });
+    if (data.ip) {
+      toast('已连接 ' + ssid + '（' + data.ip + '）。热点即将关闭，请让手机连回家里 Wi-Fi，' +
+            '再访问 http://' + data.ip + '/');
+    } else {
+      toast('已保存，设备重启中…（约 20 秒后刷新）');
+    }
+  } catch (err) {
+    toast('连接失败：' + err.message, true);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+loadAll();
+setInterval(loadAll, 15000);
+</script>
+</body>
+</html>
